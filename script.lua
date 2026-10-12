@@ -1,14 +1,20 @@
--- Steal a Egg | Panel Xeno-compatible by [K] for Kanha
+-- Steal a Egg | Panel by [K] for Kanha
+print("[K] script start")
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
 
 local plr = Players.LocalPlayer
+
 local char = plr.Character or plr.CharacterAdded:Wait()
-local hrp = char:WaitForChild("HumanoidRootPart")
-local hum = char:WaitForChild("Humanoid")
+local hrp = char:WaitForChild("HumanoidRootPart", 10)
+local hum = char:WaitForChild("Humanoid", 10)
+
+if not hrp or not hum then
+    warn("[K] missing hrp/hum")
+    return
+end
 
 local state = {
     speed = false,
@@ -18,6 +24,8 @@ local state = {
     flySpeed = 80,
     autoEgg = false,
     selectedEgg = nil,
+    lastRemote = nil,
+    lastArgs = nil,
 }
 
 plr.CharacterAdded:Connect(function(c)
@@ -29,21 +37,60 @@ plr.CharacterAdded:Connect(function(c)
 end)
 
 --------------------------------------------------------------------
+-- REMOTE SPY (safe, sans hook metamethod)
+--------------------------------------------------------------------
+print("[K] scanning remotes...")
+local remotes = {}
+for _, d in ipairs(game:GetDescendants()) do
+    if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") then
+        table.insert(remotes, d)
+    end
+end
+print("[K] found", #remotes, "remotes")
+
+-- log les remotes entrants qui contiennent "egg" dans le nom
+for _, r in ipairs(remotes) do
+    if r:IsA("RemoteEvent") then
+        pcall(function()
+            r.OnClientEvent:Connect(function(...)
+                local n = string.lower(r.Name)
+                if string.find(n, "egg") or string.find(n, "pickup") or string.find(n, "grab") then
+                    print("[K] SERVER->CLIENT:", r:GetFullName(), ...)
+                end
+            end)
+        end)
+    end
+end
+
+--------------------------------------------------------------------
 -- GUI
 --------------------------------------------------------------------
 local gui = Instance.new("ScreenGui")
 gui.Name = "K_StealEgg"
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-gui.Parent = plr:WaitForChild("PlayerGui")
+gui.IgnoreGuiInset = true
+gui.DisplayOrder = 999999
+
+local parented = false
+if gethui then
+    pcall(function() gui.Parent = gethui(); parented = true end)
+end
+if not parented then
+    pcall(function() gui.Parent = game:GetService("CoreGui"); parented = true end)
+end
+if not parented then
+    gui.Parent = plr:WaitForChild("PlayerGui")
+end
 
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 260, 0, 450)
-main.Position = UDim2.new(0, 20, 0.5, -225)
+main.Size = UDim2.new(0, 260, 0, 500)
+main.Position = UDim2.new(0, 20, 0.5, -250)
 main.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
 main.BorderSizePixel = 0
 main.Active = true
 main.Draggable = true
+main.ZIndex = 100
 main.Parent = gui
 Instance.new("UICorner", main).CornerRadius = UDim.new(0, 8)
 
@@ -53,43 +100,21 @@ stroke.Thickness = 1
 stroke.Parent = main
 
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -40, 0, 32)
+title.Size = UDim2.new(1, 0, 0, 32)
 title.BackgroundTransparency = 1
 title.Text = "  steal a egg  |  [K]"
 title.TextColor3 = Color3.fromRGB(230, 230, 240)
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Font = Enum.Font.GothamMedium
 title.TextSize = 14
+title.ZIndex = 101
 title.Parent = main
 
--- bouton hide
-local hideBtn = Instance.new("TextButton")
-hideBtn.Size = UDim2.new(0, 26, 0, 26)
-hideBtn.Position = UDim2.new(1, -32, 0, 3)
-hideBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 40)
-hideBtn.Text = "×"
-hideBtn.TextColor3 = Color3.fromRGB(230, 200, 200)
-hideBtn.Font = Enum.Font.GothamBold
-hideBtn.TextSize = 16
-hideBtn.Parent = main
-Instance.new("UICorner", hideBtn).CornerRadius = UDim.new(0, 6)
-
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.new(0, 34, 0, 34)
-toggleBtn.Position = UDim2.new(0, 10, 0.5, -17)
-toggleBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
-toggleBtn.Text = "K"
-toggleBtn.TextColor3 = Color3.fromRGB(200, 200, 220)
-toggleBtn.Font = Enum.Font.GothamBold
-toggleBtn.TextSize = 14
-toggleBtn.Visible = false
-toggleBtn.Parent = gui
-Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 8)
-
 local holder = Instance.new("Frame")
-holder.Size = UDim2.new(1, -20, 1, -80)
-holder.Position = UDim2.new(0, 10, 0, 42)
+holder.Size = UDim2.new(1, -20, 1, -50)
+holder.Position = UDim2.new(0, 10, 0, 40)
 holder.BackgroundTransparency = 1
+holder.ZIndex = 101
 holder.Parent = main
 
 local layout = Instance.new("UIListLayout")
@@ -107,6 +132,7 @@ local function makeToggle(name, callback)
     btn.TextSize = 13
     btn.TextXAlignment = Enum.TextXAlignment.Left
     btn.AutoButtonColor = false
+    btn.ZIndex = 102
     btn.Parent = holder
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
@@ -119,10 +145,7 @@ local function makeToggle(name, callback)
     return btn
 end
 
--- SPEED via CFrame loop (bypass anti-cheat walk)
-makeToggle("speed hack", function(on)
-    state.speed = on
-end)
+makeToggle("speed hack", function(on) state.speed = on end)
 
 task.spawn(function()
     while true do
@@ -149,7 +172,7 @@ makeToggle("super jump", function(on)
     if hum then hum.UseJumpPower = true; hum.JumpPower = on and 200 or 50 end
 end)
 
-local flyBV, flyBG
+local flyBV, flyBG, flyConn
 makeToggle("fly (WASD + space/ctrl)", function(on)
     state.fly = on
     if not hum or not hrp then return end
@@ -165,7 +188,7 @@ makeToggle("fly (WASD + space/ctrl)", function(on)
         flyBG.D = 50
         flyBG.Parent = hrp
 
-        RunService.RenderStepped:Connect(function()
+        flyConn = RunService.RenderStepped:Connect(function()
             if not state.fly or not hrp or not flyBV then return end
             local cam = workspace.CurrentCamera
             local dir = Vector3.zero
@@ -182,6 +205,7 @@ makeToggle("fly (WASD + space/ctrl)", function(on)
             flyBG.CFrame = cam.CFrame
         end)
     else
+        if flyConn then flyConn:Disconnect(); flyConn = nil end
         if flyBV then flyBV:Destroy(); flyBV = nil end
         if flyBG then flyBG:Destroy(); flyBG = nil end
     end
@@ -190,22 +214,24 @@ end)
 local eggLabel = Instance.new("TextLabel")
 eggLabel.Size = UDim2.new(1, 0, 0, 26)
 eggLabel.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
-eggLabel.Text = "  œuf ciblé : aucun"
+eggLabel.Text = "  oeuf cible : aucun"
 eggLabel.TextColor3 = Color3.fromRGB(190, 190, 210)
 eggLabel.Font = Enum.Font.Gotham
 eggLabel.TextSize = 12
 eggLabel.TextXAlignment = Enum.TextXAlignment.Left
+eggLabel.ZIndex = 102
 eggLabel.Parent = holder
 Instance.new("UICorner", eggLabel).CornerRadius = UDim.new(0, 6)
 
 local eggListBtn = Instance.new("TextButton")
 eggListBtn.Size = UDim2.new(1, 0, 0, 30)
 eggListBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
-eggListBtn.Text = "  choisir un œuf"
+eggListBtn.Text = "  choisir un oeuf"
 eggListBtn.TextColor3 = Color3.fromRGB(220, 220, 235)
 eggListBtn.Font = Enum.Font.Gotham
 eggListBtn.TextSize = 13
 eggListBtn.TextXAlignment = Enum.TextXAlignment.Left
+eggListBtn.ZIndex = 102
 eggListBtn.Parent = holder
 Instance.new("UICorner", eggListBtn).CornerRadius = UDim.new(0, 6)
 
@@ -217,6 +243,7 @@ eggFrame.BorderSizePixel = 0
 eggFrame.Visible = false
 eggFrame.ScrollBarThickness = 4
 eggFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+eggFrame.ZIndex = 200
 eggFrame.Parent = main
 Instance.new("UICorner", eggFrame).CornerRadius = UDim.new(0, 8)
 
@@ -225,8 +252,8 @@ eggLayout.Padding = UDim.new(0, 4)
 eggLayout.Parent = eggFrame
 
 local function isEgg(obj)
-    local n = obj.Name:lower()
-    return obj:IsA("BasePart") and (n:find("egg") or n:find("oeuf"))
+    local n = string.lower(obj.Name)
+    return obj:IsA("BasePart") and (string.find(n, "egg") or string.find(n, "oeuf"))
 end
 
 local function collectEggs()
@@ -251,11 +278,12 @@ local function refreshEggList()
         b.TextSize = 12
         b.Font = Enum.Font.Gotham
         b.TextXAlignment = Enum.TextXAlignment.Left
+        b.ZIndex = 201
         b.Parent = eggFrame
         Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
         b.MouseButton1Click:Connect(function()
             state.selectedEgg = egg
-            eggLabel.Text = "  œuf ciblé : " .. egg.Name
+            eggLabel.Text = "  oeuf cible : " .. egg.Name
             eggFrame.Visible = false
         end)
     end
@@ -268,27 +296,20 @@ eggListBtn.MouseButton1Click:Connect(function()
 end)
 
 --------------------------------------------------------------------
--- pickup : on s'installe DESSUS et on attend que le jeu prenne
+-- PICKUP
 --------------------------------------------------------------------
 local basePos = nil
 
 local function pickupEgg(egg)
     if not hrp or not egg or not egg.Parent then return end
-    local above = egg.Position + Vector3.new(0, 2, 0)
-    local onTop = egg.Position
-
-    -- va au-dessus
-    hrp.CFrame = CFrame.new(above)
+    hrp.CFrame = CFrame.new(egg.Position + Vector3.new(0, 2, 0))
     task.wait(0.2)
-    -- colle dessus, plusieurs frames pour que le Touched s'active bien
     for i = 1, 12 do
         if not egg.Parent then break end
         hrp.CFrame = CFrame.new(egg.Position)
         RunService.Heartbeat:Wait()
     end
-    -- reste un peu plus sur place (le jeu a besoin d'un contact stable)
     task.wait(0.5)
-
     if basePos then
         hrp.CFrame = basePos
     else
@@ -307,7 +328,7 @@ local function grabEggByName(name)
     return false
 end
 
-makeToggle("auto pick œuf ciblé (loop)", function(on)
+makeToggle("auto pick oeuf cible (loop)", function(on)
     state.autoEgg = on
 end)
 
@@ -328,22 +349,10 @@ UserInputService.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if input.KeyCode == Enum.KeyCode.B then
         if hrp then basePos = hrp.CFrame end
-        eggLabel.Text = "  base enregistrée"
+        eggLabel.Text = "  base enregistree"
         task.wait(1)
-        eggLabel.Text = state.selectedEgg and ("  œuf ciblé : " .. state.selectedEgg.Name) or "  œuf ciblé : aucun"
-    end
-    if input.KeyCode == Enum.KeyCode.RightShift then
-        main.Visible = not main.Visible
-        toggleBtn.Visible = not main.Visible
+        eggLabel.Text = state.selectedEgg and ("  oeuf cible : " .. state.selectedEgg.Name) or "  oeuf cible : aucun"
     end
 end)
 
-hideBtn.MouseButton1Click:Connect(function()
-    main.Visible = false
-    toggleBtn.Visible = true
-end)
-
-toggleBtn.MouseButton1Click:Connect(function()
-    main.Visible = true
-    toggleBtn.Visible = false
-end)
+print("[K] script loaded ok")
