@@ -3,6 +3,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 
 local plr = Players.LocalPlayer
 local char = plr.Character or plr.CharacterAdded:Wait()
@@ -24,7 +25,6 @@ plr.CharacterAdded:Connect(function(c)
     hrp = c:WaitForChild("HumanoidRootPart")
     hum = c:WaitForChild("Humanoid")
     if state.god then hum.MaxHealth = math.huge; hum.Health = math.huge end
-    if state.speed then hum.WalkSpeed = 120 end
     if state.superJump then hum.UseJumpPower = true; hum.JumpPower = 200 end
 end)
 
@@ -38,8 +38,8 @@ gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = plr:WaitForChild("PlayerGui")
 
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 260, 0, 420)
-main.Position = UDim2.new(0, 20, 0.5, -210)
+main.Size = UDim2.new(0, 260, 0, 450)
+main.Position = UDim2.new(0, 20, 0.5, -225)
 main.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
 main.BorderSizePixel = 0
 main.Active = true
@@ -53,7 +53,7 @@ stroke.Thickness = 1
 stroke.Parent = main
 
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 32)
+title.Size = UDim2.new(1, -40, 0, 32)
 title.BackgroundTransparency = 1
 title.Text = "  steal a egg  |  [K]"
 title.TextColor3 = Color3.fromRGB(230, 230, 240)
@@ -61,6 +61,18 @@ title.TextXAlignment = Enum.TextXAlignment.Left
 title.Font = Enum.Font.GothamMedium
 title.TextSize = 14
 title.Parent = main
+
+-- bouton hide
+local hideBtn = Instance.new("TextButton")
+hideBtn.Size = UDim2.new(0, 26, 0, 26)
+hideBtn.Position = UDim2.new(1, -32, 0, 3)
+hideBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 40)
+hideBtn.Text = "×"
+hideBtn.TextColor3 = Color3.fromRGB(230, 200, 200)
+hideBtn.Font = Enum.Font.GothamBold
+hideBtn.TextSize = 16
+hideBtn.Parent = main
+Instance.new("UICorner", hideBtn).CornerRadius = UDim.new(0, 6)
 
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.Size = UDim2.new(0, 34, 0, 34)
@@ -107,9 +119,21 @@ local function makeToggle(name, callback)
     return btn
 end
 
+-- SPEED via CFrame loop (bypass anti-cheat walk)
 makeToggle("speed hack", function(on)
     state.speed = on
-    if hum then hum.WalkSpeed = on and 120 or 16 end
+end)
+
+task.spawn(function()
+    while true do
+        RunService.Heartbeat:Wait()
+        if state.speed and hrp and hum then
+            local move = hum.MoveDirection
+            if move.Magnitude > 0 then
+                hrp.CFrame = hrp.CFrame + move * 1.8
+            end
+        end
+    end
 end)
 
 makeToggle("godmode", function(on)
@@ -244,32 +268,27 @@ eggListBtn.MouseButton1Click:Connect(function()
 end)
 
 --------------------------------------------------------------------
--- pickup compatible xeno (pas de firetouchinterest)
+-- pickup : on s'installe DESSUS et on attend que le jeu prenne
 --------------------------------------------------------------------
 local basePos = nil
 
-local function triggerTouch(part)
-    -- méthode 1 : TouchInterest direct
-    local ti = part:FindFirstChildOfClass("TouchInterest")
-    if ti then
-        -- simuler via touched event : on cherche le signal
-        local touchedSignal = part.Touched
-        if touchedSignal then
-            -- impossible de fire directement le signal, on force via un override
-            -- fallback : déplacer le hrp très près, le moteur physique déclenchera
-        end
-    end
-end
-
 local function pickupEgg(egg)
     if not hrp or not egg or not egg.Parent then return end
-    local oldPos = hrp.CFrame
-    -- tp pile sur l'œuf pour déclencher le Touched naturellement
-    hrp.CFrame = CFrame.new(egg.Position + Vector3.new(0, 1, 0))
-    task.wait(0.25)
-    hrp.CFrame = CFrame.new(egg.Position) -- re-position pour re-trigger
-    task.wait(0.25)
-    -- si l'œuf a un Touched custom, on le laisse faire son effet via proximity
+    local above = egg.Position + Vector3.new(0, 2, 0)
+    local onTop = egg.Position
+
+    -- va au-dessus
+    hrp.CFrame = CFrame.new(above)
+    task.wait(0.2)
+    -- colle dessus, plusieurs frames pour que le Touched s'active bien
+    for i = 1, 12 do
+        if not egg.Parent then break end
+        hrp.CFrame = CFrame.new(egg.Position)
+        RunService.Heartbeat:Wait()
+    end
+    -- reste un peu plus sur place (le jeu a besoin d'un contact stable)
+    task.wait(0.5)
+
     if basePos then
         hrp.CFrame = basePos
     else
@@ -294,7 +313,7 @@ end)
 
 task.spawn(function()
     while true do
-        task.wait(0.5)
+        task.wait(0.6)
         if state.autoEgg and state.selectedEgg then
             if state.selectedEgg.Parent then
                 pickupEgg(state.selectedEgg)
@@ -317,6 +336,11 @@ UserInputService.InputBegan:Connect(function(input, gpe)
         main.Visible = not main.Visible
         toggleBtn.Visible = not main.Visible
     end
+end)
+
+hideBtn.MouseButton1Click:Connect(function()
+    main.Visible = false
+    toggleBtn.Visible = true
 end)
 
 toggleBtn.MouseButton1Click:Connect(function()
